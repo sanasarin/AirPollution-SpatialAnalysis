@@ -1,0 +1,46 @@
+---
+title: "No2_Interpolation"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r}
+library(tidyverse)
+```
+
+Read the data and filter
+
+```{r}
+air_data <- read_csv("data/air_data_selected_states.csv", show_col_types = FALSE, guess_max = 9500)
+no2_data <- air_data%>%
+  filter(`Parameter Name` == "Nitrogen dioxide (NO2)")
+```
+
+Convert to spatial points
+
+```{r}
+library(sp)
+coordinates(no2_data) = ~Longitude+Latitude
+```
+
+Plot 
+```{r}
+plot(no2_data)
+```
+
+Make a grid
+
+```{r}
+## 1. Create a grid from the values in your points dataframe
+## first get the range in data
+x.range <- as.integer(range(no2_data@coords[,1]))
+y.range <- as.integer(range(no2_data@coords[,2]))
+```
+
+```{r}
+##2. Create a grid with a slightly larger extent
+plot(no2_data)
+#use the locator to click 4 points beyond the extent of the plot
+#and use those to set your x and y extents
+locator(4)
+```

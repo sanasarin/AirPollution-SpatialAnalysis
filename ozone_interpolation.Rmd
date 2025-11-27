@@ -1,0 +1,131 @@
+---
+title: "Ozone_Interpolation"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+# Load data
+
+Load the tidyverse Library
+
+```{r}
+library(tidyverse)
+```
+
+Read the data -- Warning: it's pretty large. 
+
+```{r}
+air_data <- read_csv("data/air_data_selected_states.csv", show_col_types = FALSE, guess_max = 9500)
+```
+
+Filter the pollutant
+
+```{r}
+air_data_ozone <- air_data %>%
+  filter(`Parameter Name` == 'Ozone')
+
+air_data_ozone
+
+view(air_data_ozone)
+```
+
+Print attributes
+
+```{r}
+head(air_data_ozone)
+```
+
+# IDW for Ozone 
+
+## Visualize data on leaflet map
+
+```{r}
+library(leaflet)
+
+leaflet(air_data_ozone) %>%
+  addTiles() %>%
+  addCircleMarkers()
+
+```
+
+
+## Load libraries
+
+```{r}
+# Load necessary libraries
+library(gstat)
+library(sp)
+library(raster)
+library(rgdal)
+library(readr)
+library(maptools)
+library(ggplot2)
+```
+
+Make function for IDW
+
+```{r}
+perform_idw <- function(data, pollutant_name) {
+  
+  pollutant_data <- data %>%
+    filter(`Parameter Name` == pollutant_name)
+
+  coordinates <- pollutant_data[, c("Longitude", "Latitude")]
+  values <- pollutant_data$`Arithmetic Mean`
+  spdf <- SpatialPointsDataFrame(coords = coordinates, data = data.frame(values))
+
+
+  proj4string(spdf) <- CRS("+init=epsg:4326")
+
+  idw_output <- idw(formula = values ~ 1, locations = spdf, newdata = spdf, idp = 2.0)
+
+  return(idw_output)
+}
+```
+
+List pollutant and apply IDW
+
+```{r}
+pollutants <- c("Ozone") # can add more too, but just ad done
+
+idw_results <- lapply(pollutants, function(pollutant) perform_idw(air_data_ozone, pollutant))
+
+```
+
+Print 
+
+```{r}
+idw.output=as.data.frame(idw_results)
+
+idw.output
+```
+
+```{r}
+names(idw.output)[1:3]<-c("Longitude","Latitude","var1.pred")
+```
+
+Load the states
+
+```{r}
+states <- readShapePoly("data/states.shp")
+states_outline <- fortify(states, region="REGION")
+```
+
+
+Plot the states
+
+```{r}
+plot<-ggplot(data=idw.output,aes(x=Longitude,y=Latitude))#start with the base-plot 
+layer1<-c(geom_tile(data=idw.output,aes(fill=var1.pred)))#then create a tile layer and fill with predicted values
+
+
+#layer2<-c(geom_path(data=states_outline,aes(Longitude, Latitude, group=group),colour = "grey40", size=1))#then create an outline layer
+
+
+# now add all of the data together
+plot+layer1+scale_fill_gradient(low="#FEEBE2", high="#7A0177")+coord_equal()
+
+ggplot() +
+  geom_point(data = idw.output, mapping = aes(x = Longitude, y = Latitude), size=3)
+```
+

@@ -1,0 +1,148 @@
+---
+title: "PM2.5 clusters"
+output: html_document
+date: "2023-04-10"
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+library(readr)
+library(sf)
+library(dplyr)
+
+pm2_clusters <- read_csv("data/pm2_clusters.csv", show_col_types = FALSE)
+
+states <- sf::st_read("data/states.shp")
+
+```
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+
+state_names <- c("Delaware", "Maryland", "New Jersey", "New York", "Pennsylvania")
+states_filtered <- states %>% filter(NAME %in% state_names)
+state_centroids <- st_centroid(states_filtered, of_largest_polygon = TRUE) %>% 
+  cbind(st_coordinates(.)) %>%
+  as.data.frame() %>%
+  dplyr::select(NAME, X, Y)
+
+
+# Count the number of points per cluster
+cluster_counts <- pm2_clusters %>%
+  group_by(CL) %>%
+  summarize(count = n()) %>%
+  mutate(cluster_label = paste("Cluster", CL, "(", count, ")", sep = " "))
+
+# Define individual nudges for each state
+state_centroids <- state_centroids %>%
+  mutate(nudge_x = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ 0.05,
+           NAME == "New Jersey" ~ -0.05,
+           NAME == "New York" ~ -0.05,
+           NAME == "Pennsylvania" ~ 0.05
+         ),
+         nudge_y = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ -0.05,
+           NAME == "New Jersey" ~ 0.05,
+           NAME == "New York" ~ 0.05,
+           NAME == "Pennsylvania" ~ -0.05
+         ))
+
+library(RColorBrewer)
+
+
+# Calculate min and max arithmetic mean for each cluster
+cluster_ranges <- pm2_clusters %>%
+  group_by(CL) %>%
+  summarize(min_mean = min(`Arithmetic Mean`),
+            max_mean = max(`Arithmetic Mean`)) %>%
+  mutate(cluster_label = paste("Cluster", CL, ": ", round(min_mean, 3), " - ", round(max_mean, 3), sep = " "))
+
+
+custom_palette <- c(brewer.pal(8, "Set2"), "#FDB813", "#B2DF8A")
+
+
+# Plot the data using ggplot2 with the states background and state names
+ggplot() +
+  geom_sf(data = states_filtered, fill = "#eeeeee", color = "black", size = 0.1) +
+  #geom_text_repel(data = state_centroids, aes(x = X, y = Y, label = NAME, nudge_x = nudge_x, nudge_y = nudge_y), size = 2.45, fontface = "bold") +
+  geom_point(data = pm2_clusters, aes(x = Longitude, y = Latitude, color = factor(CL))) +
+  labs(title = "Spatial Clustering of PM2.5 Monitoring Stations",
+       subtitle = paste("States:", paste(state_names, collapse = ", ")),
+       x = "Longitude",
+       y = "Latitude",
+       color = "Cluster") +
+  theme_minimal() +
+  scale_color_manual(values = custom_palette, name = "Clusters with Pollution Range (μg/m3)", labels = cluster_ranges$cluster_label)
+
+
+
+```
+
+
+Histogram
+
+```{r}
+cluster_counts <- pm2_clusters %>%
+  group_by(CL) %>%
+  summarize(count = n()) %>%
+  mutate(cluster_label = factor(CL))
+
+# Plot the bar plot using ggplot2
+ggplot(cluster_counts, aes(x = cluster_label, y = count, fill = cluster_label)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.9) +
+  labs(title = "Number of PM2.5 Monitors per Cluster",
+       x = "Clusters",
+       y = "Number of PM2.5 Monitors",
+       fill = "Cluster") +
+  theme_minimal() +
+  scale_fill_manual(values = custom_palette, name = "Clusters with Pollution Range (μg/m3)", labels = cluster_ranges$cluster_label)
+
+```
+
+Descriptive statistic for each cluster
+```{r}
+pm2_clusters
+```
+
+
+```{r}
+pm2_clusters %>%
+  filter(CL == 1) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+pm2_clusters %>%
+  filter(CL == 2) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+pm2_clusters %>%
+  filter(CL == 3) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+pm2_clusters %>%
+  filter(CL == 4) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+pm2_clusters %>%
+  filter(CL == 5) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+pm2_clusters %>%
+  filter(CL == 6) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+```

@@ -1,0 +1,225 @@
+---
+title: "Pennsylvania Air Pollutant Spatial Analysis"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+# Data Munging
+
+Load the tidyverse Library
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+library(ggsn)
+library(sp)
+library(sf)
+```
+
+Read the data -- Warning: it's pretty large. 
+
+```{r}
+air_data <- read_csv("data/annual_conc_by_monitor_2021.csv", show_col_types = FALSE)
+```
+
+
+List all attributes
+
+```{r}
+names(air_data)
+```
+
+And, let's load a few rows.
+
+```{r}
+air_data
+```
+
+
+The relevant attributes for our case are 
+- `Latitude` and `Longitude` -- probably needed later for spatial analysis
+- `State Name` -- filter by states
+- `City Name` and `County Name` may be useful later
+- `Parameter Name` -- filter the three air pollutants (NO2, Ground Ozone, PM2.5)
+- `Year` -- Filter the year 
+- `Arithmetic Mean` -- useful for air pollution concentration
+- `Units of Measure` -- ensure consistency in the pollutant concentration units
+
+Let's view all values for `Parameter Name` that may contain nitrogen, Ozone or PM2.5
+
+```{r}
+unique(air_data$`Parameter Name`)
+```
+
+Since that is a lot going on, let's try to filter by substrings. 
+
+```{r}
+unique(air_data$`Parameter Name`[grepl("Nitrogen", air_data$`Parameter Name`)])
+```
+
+We may filter by `Nitrogen dioxide (NO2)`
+
+```{r}
+unique(air_data$`Parameter Name`[grepl("Ozone", air_data$`Parameter Name`)])
+unique(air_data$`Parameter Name`[grepl("O2", air_data$`Parameter Name`)])
+```
+
+```{r}
+unique(air_data$`Parameter Name`[grepl("PM2.5", air_data$`Parameter Name`)])
+```
+
+Filter by:
+Ozone - Daily maximum of 8-hour running average	- Pollutant Standard: Ozone 8-hour 2015	
+PM2.5 - Local Conditions - Daily Mean	- Pollutant Standard: PM25 24-hour 2012
+Nitrogen dioxide (NO2) - Daily Maximum 1-hour average	- Pollutant Standard: NO2 Annual 1971
+
+Ensure each monitor only has one measurement by using distinct()
+```{r}
+pollutants <- c("Ozone 8-hour 2015", "PM25 24-hour 2012", "NO2 Annual 1971")
+
+air_data_pollutants <- air_data %>%
+  filter(`Pollutant Standard` %in% pollutants) %>%
+  filter(`Year` == 2021) %>%
+  distinct(`State Code`,`County Code`,`Site Num`, `Pollutant Standard`, .keep_all = TRUE)
+
+# Sanity check
+unique(air_data_pollutants$`Parameter Code`)
+unique(air_data_pollutants$`Pollutant Standard`)
+
+```
+
+Let's see all state names 
+
+```{r}
+unique(air_data$`State Name`)
+```
+
+Our selected states are: New York, Pennsylvania, New Jersey, Delaware, Maryland
+
+Let's filter by these states so we have a smaller csv file.
+
+```{r}
+selected_states <- c("New York", "Pennsylvania", "New Jersey", "Delaware", "Maryland")
+
+air_data_states_pollutants <- air_data_pollutants %>%
+  filter(`State Name` %in% selected_states) %>%
+  filter(`Year` == 2021)
+
+# Sanity check
+unique(air_data_states_pollutants$`State Name`)
+```
+
+Let's export this!
+```{r}
+write_csv(air_data_states_pollutants, "data/air_data_states_pollutants.csv")
+```
+
+Map the points by pollutant
+```{r}
+no2_data <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == "Nitrogen dioxide (NO2)")
+ozone_data <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == "Ozone")
+pm_data <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == "PM2.5 - Local Conditions")
+
+# convert to sf object and transform to EPSG 102004 (NAD 1983 Lambert contiguous USA)
+crs = st_crs("EPSG:4326")
+new_crs = st_crs("ESRI:102004")
+
+states <- sf::st_read("data/states.shp") %>% st_transform(new_crs)
+states_filtered <- states %>% filter(NAME %in% state_names)
+
+no2_df_sf <- st_as_sf(no2_data, coords = c("Longitude", "Latitude"), crs = crs)%>%
+  st_transform(new_crs)
+ozone_df_sf <- st_as_sf(ozone_data, coords = c("Longitude", "Latitude"), crs = crs)%>%
+  st_transform(new_crs)
+pm_df_sf <- st_as_sf(pm_data, coords = c("Longitude", "Latitude"), crs = crs)%>%
+  st_transform(new_crs)
+
+state_names <- c("Delaware", "Maryland", "New Jersey", "New York", "Pennsylvania")
+state_centroids <- st_centroid(states, of_largest_polygon = TRUE) %>% 
+  cbind(st_coordinates(.)) %>%
+  as.data.frame() %>%
+  dplyr::select(NAME, X, Y)
+
+no2_df <- no2_df_sf %>% cbind(st_coordinates(.)) %>% as.data.frame()
+ozone_df <- ozone_df_sf %>% cbind(st_coordinates(.)) %>% as.data.frame()
+pm_df <- pm_df_sf %>% cbind(st_coordinates(.)) %>% as.data.frame()
+
+# position of text labels
+state_centroids <- state_centroids %>%
+  mutate(nudge_x = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ 0.05,
+           NAME == "New Jersey" ~ 0.05,
+           NAME == "New York" ~ 0.05,
+           NAME == "Pennsylvania" ~ 0.05
+         ),
+         nudge_y = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ -0.05,
+           NAME == "New Jersey" ~ 0.05,
+           NAME == "New York" ~ 0.05,
+           NAME == "Pennsylvania" ~ -0.05
+         ))
+
+ggplot() +
+  geom_sf(data = states_filtered, fill = "#eeeeee", color = "black", size = 0.1) +
+  geom_text_repel(data = state_centroids, aes(x = X, y = Y, label = NAME, nudge_x =nudge_x, nudge_y=nudge_y), size = 2.5, fontface = "bold", force=3)+
+  geom_point(data=no2_df, aes(x = X, y= Y, colour="Nitrogen dioxide (NO2)"), size=1.6) +
+  geom_point(data=ozone_df, aes(x = X, y= Y, colour="Ozone"), size=1) +
+  geom_point(data=pm_df, aes(x = X, y= Y, colour="PM2.5 - Local Conditions"), size=0.3) +
+  labs(title="Monitors by Pollutants in Study Area", y="Latitude (degrees)", x="Longitude (degrees)", colour="Pollutant") +
+  scale_color_manual(values = c("red", "turquoise", "blue") )+
+  theme_minimal() +
+  north(states_filtered)+
+  scalebar(states_filtered, dist = 100, dist_unit = "km",transform = FALSE, model = 'NAD83', st.size = 2, border.size= 0.5, location="topleft")
+
+```
+
+# Clustering exports -- the rest of the stuff is in their respective files. 
+# namely the plotting of csvs exported from geoda 
+
+Lets export for specific pollutants -- Ozone 
+
+
+```{r}
+air_data_states_pollutants_ozone <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == 'Ozone')
+
+
+write_csv(air_data_states_pollutants_ozone, "data/air_data_states_pollutants_ozone.csv")
+```
+
+
+Lets export for specific pollutants -- Ozone 
+```{r}
+air_data_states_pollutants_ozone <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == 'Ozone') %>%
+  dplyr::select(Latitude, Longitude, `Arithmetic Mean`, `Parameter Name`)
+
+write_csv(air_data_states_pollutants_ozone, "data/air_data_states_pollutants_ozone_v2.csv")
+```
+
+
+NO2
+```{r}
+air_data_states_pollutants_no2 <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == 'Nitrogen dioxide (NO2)') %>%
+  dplyr::select(Latitude, Longitude, `Arithmetic Mean`, `Parameter Name`)
+
+
+write_csv(air_data_states_pollutants_no2, "data/air_data_states_pollutants_no2.csv")
+```
+
+PM2.5 
+```{r}
+air_data_states_pollutants_pm <- air_data_states_pollutants %>%
+  filter(`Parameter Name` == 'PM2.5 - Local Conditions') %>%
+  dplyr::select(Latitude, Longitude, `Arithmetic Mean`, `Parameter Name`)
+
+
+write_csv(air_data_states_pollutants_pm, "data/air_data_states_pollutants_pm.csv")
+
+```

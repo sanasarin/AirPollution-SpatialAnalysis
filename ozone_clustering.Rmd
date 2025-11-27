@@ -1,0 +1,210 @@
+---
+title: "Clustering for Ozone"
+output: html_document
+date: "2023-04-10"
+---
+
+```{r}
+library(tidyverse)
+```
+
+# The actual clustering was done using GeoDa
+## Here are the steps to replicate 
+
+Ensure you have GeoDa installed.
+
+Just like interpolation, use a cleaned verison of the data and 
+filter on the pollutant you are clustering for. In my case, I had to 
+filter by Ozone. Export it as a CSV file 
+
+Then, import it into GeoDa. Select longitude and latitude fields when
+prompted.
+
+Next, we need to create the weights. Geoda lets us create Weights really easily, 
+we need to click on tools at the top menu then click on Weights Manager.
+Create a POLYGON ID as we need a unique identifier for each station. 
+Then click on contiguity weights and select Queen contiguity. That is, we use
+the queen contiguity for our weights
+
+Now, you may click on clustering and select SKATER.
+
+I chose 8 as the number of clusters as I found that (by trial and error) 
+that this yielded the best seperation in the clusters. 
+
+I also selected mean and standard deviation for the attributes so the algorithm
+has more than one parameter to work with.
+
+Then, i exported it as CSV. It was imported back into R where GGplot was used 
+to plot the points according to their clusters 
+
+The R file can be found ozone_Clustering.rmd 
+
+Let's load the data
+
+```{r}
+library(readr)
+library(sf)
+library(dplyr)
+
+ozone_clusters <- read_csv("data/ozone_clusters_v2.csv", show_col_types = FALSE)
+
+states <- sf::st_read("data/states.shp")
+
+```
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+```
+```{r}
+
+state_names <- c("Delaware", "Maryland", "New Jersey", "New York", "Pennsylvania")
+states_filtered <- states %>% filter(NAME %in% state_names)
+state_centroids <- st_centroid(states_filtered, of_largest_polygon = TRUE) %>% 
+  cbind(st_coordinates(.)) %>%
+  as.data.frame() %>%
+  dplyr::select(NAME, X, Y)
+```
+
+
+
+Include the number of clusters
+
+```{r}
+# Count the number of points per cluster
+cluster_counts <- ozone_clusters %>%
+  group_by(CL) %>%
+  summarize(count = n()) %>%
+  mutate(cluster_label = paste("Cluster", CL, "(", count, ")", sep = " "))
+
+# Define individual nudges for each state
+state_centroids <- state_centroids %>%
+  mutate(nudge_x = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ 0.05,
+           NAME == "New Jersey" ~ -0.05,
+           NAME == "New York" ~ -0.05,
+           NAME == "Pennsylvania" ~ 0.05
+         ),
+         nudge_y = case_when(
+           NAME == "Delaware" ~ 0.05,
+           NAME == "Maryland" ~ -0.05,
+           NAME == "New Jersey" ~ 0.05,
+           NAME == "New York" ~ 0.05,
+           NAME == "Pennsylvania" ~ -0.05
+         ))
+
+
+```
+
+```{r}
+library(RColorBrewer)
+
+
+# Calculate min and max arithmetic mean for each cluster
+cluster_ranges <- ozone_clusters %>%
+  group_by(CL) %>%
+  summarize(min_mean = min(`Arithmetic Mean`),
+            max_mean = max(`Arithmetic Mean`)) %>%
+  mutate(cluster_label = paste("Cluster", CL, ": ", round(min_mean, 3), " - ", round(max_mean, 3), sep = " "))
+
+
+custom_palette <- c(brewer.pal(8, "Set2"), "#FDB813", "#B2DF8A")
+
+
+# Plot the data using ggplot2 with the states background and state names
+ggplot() +
+  geom_sf(data = states_filtered, fill = "#eeeeee", color = "black", size = 0.1) +
+  #geom_text_repel(data = state_centroids, aes(x = X, y = Y, label = NAME, nudge_x = nudge_x, nudge_y = nudge_y), size = 2.45, fontface = "bold") +
+  geom_point(data = ozone_clusters, aes(x = Longitude, y = Latitude, color = factor(CL))) +
+  labs(title = "Spatial Clustering of Ozone Monitoring Stations",
+       subtitle = paste("States:", paste(state_names, collapse = ", ")),
+       x = "Longitude",
+       y = "Latitude",
+       color = "Cluster") +
+  theme_minimal() +
+  scale_color_manual(values = custom_palette, name = "Clusters with Pollution Range (PPM)", labels = cluster_ranges$cluster_label)
+
+
+```
+```{r}
+# Create a data frame of the count of observations in each cluster
+cluster_counts <- ozone_clusters %>%
+  group_by(CL) %>%
+  summarize(count = n()) %>%
+  mutate(cluster_label = factor(CL))
+
+# Plot the bar plot using ggplot2
+ggplot(cluster_counts, aes(x = cluster_label, y = count, fill = cluster_label)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  labs(title = "Number of Ozone Monitors per Cluster",
+       x = "Clusters",
+       y = "Number of Ozone Monitors",
+       fill = "Cluster") +
+  theme_minimal() +
+  scale_fill_manual(values = custom_palette, name = "Clusters with Pollution Range (PPM)", labels = cluster_ranges$cluster_label)
+
+```
+
+
+# Lets generate some statistics 
+
+```{r}
+ozone_clusters
+```
+
+For each cluster 
+```{r}
+ozone_clusters %>%
+  filter(CL == 1) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 2) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+
+ozone_clusters %>%
+  filter(CL == 3) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 4) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 5) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 6) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+
+ozone_clusters %>%
+  filter(CL == 7) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 8) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 9) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+
+ozone_clusters %>%
+  filter(CL == 10) %>%
+  dplyr::select(`Arithmetic Mean`) %>%
+  summary()
+```
