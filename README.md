@@ -1,6 +1,5 @@
 # Visualizing Spatial Patterns of Air Pollution in the Eastern United States  
 ### Impacts on Human Health  
-**Authors:** Sanah Sarin, Abdullah Shahid, Munim Adil  
 **Date:** March 27 – April 10, 2024  
 
 ---
